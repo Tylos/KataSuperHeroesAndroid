@@ -17,30 +17,53 @@
 package com.karumi.katasuperheroes;
 
 import android.support.test.InstrumentationRegistry;
+import android.support.test.espresso.NoMatchingViewException;
+import android.support.test.espresso.contrib.RecyclerViewActions;
 import android.support.test.espresso.intent.rule.IntentsTestRule;
 import android.support.test.runner.AndroidJUnit4;
 import android.test.suitebuilder.annotation.LargeTest;
+import android.view.View;
+
 import com.karumi.katasuperheroes.di.MainComponent;
 import com.karumi.katasuperheroes.di.MainModule;
+import com.karumi.katasuperheroes.matchers.RecyclerViewItemsCountMatcher;
 import com.karumi.katasuperheroes.model.SuperHero;
 import com.karumi.katasuperheroes.model.SuperHeroesRepository;
+import com.karumi.katasuperheroes.recyclerview.RecyclerViewInteraction;
 import com.karumi.katasuperheroes.ui.view.MainActivity;
-import it.cosenonjaviste.daggermock.DaggerMockRule;
-import java.util.Collections;
+import com.karumi.katasuperheroes.ui.view.SuperHeroDetailActivity;
+
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+import it.cosenonjaviste.daggermock.DaggerMockRule;
+
 import static android.support.test.espresso.Espresso.onView;
+import static android.support.test.espresso.action.ViewActions.click;
 import static android.support.test.espresso.assertion.ViewAssertions.matches;
+import static android.support.test.espresso.intent.Intents.intended;
+import static android.support.test.espresso.intent.matcher.IntentMatchers.hasComponent;
+import static android.support.test.espresso.matcher.ViewMatchers.hasDescendant;
 import static android.support.test.espresso.matcher.ViewMatchers.isDisplayed;
+import static android.support.test.espresso.matcher.ViewMatchers.withId;
 import static android.support.test.espresso.matcher.ViewMatchers.withText;
+import static com.karumi.katasuperheroes.matchers.ToolbarMatcher.onToolbarWithTitle;
+import static org.hamcrest.CoreMatchers.not;
 import static org.mockito.Mockito.when;
 
 @RunWith(AndroidJUnit4.class) @LargeTest public class MainActivityTest {
 
-  @Rule public DaggerMockRule<MainComponent> daggerRule =
+    public static final String EXPECTED_NAME = "name";
+    public static final String EXPECTED_PHOTO = "photo";
+    public static final String EXPECTED_DESCRIPTION = "description";
+    public static final int RANDOM_NUMBER_OF_SUPER_HEROES = 10;
+    @Rule public DaggerMockRule<MainComponent> daggerRule =
       new DaggerMockRule<>(MainComponent.class, new MainModule()).set(
           new DaggerMockRule.ComponentSetter<MainComponent>() {
             @Override public void setComponent(MainComponent component) {
@@ -72,4 +95,93 @@ import static org.mockito.Mockito.when;
   private MainActivity startActivity() {
     return activityRule.launchActivity(null);
   }
+
+  @Test public void showsSuperHeroesIfThereAreSuperHeroes() { //WTF ¬¬!
+    givenSomeSuperHeroes();
+
+    startActivity();
+
+      onView(withId(R.id.recycler_view)).check(matches(isDisplayed()));
+  }
+
+    private List<SuperHero> givenSomeSuperHeroes() {
+        return givenSomeSuperHeroes(1);
+    }
+
+    private List<SuperHero> givenSomeSuperHeroes(int i) {
+        List<SuperHero> superHeroList = new ArrayList<>();
+        for (int j = 0; j<i; j++) {
+            SuperHero superHero = new SuperHero(EXPECTED_NAME+j, EXPECTED_PHOTO+j, Boolean.FALSE, EXPECTED_DESCRIPTION+j);
+            superHeroList.add(superHero);
+            when(repository.getByName(EXPECTED_NAME+j)).thenReturn(superHero);
+        }
+        when(repository.getAll()).thenReturn(superHeroList);
+        return superHeroList;
+    }
+
+    @Test public void showsSuperHeroInformation() {
+        givenASuperHero(Boolean.FALSE);
+
+        startActivity();
+
+        onView(withText(EXPECTED_NAME)).check(matches(isDisplayed()));
+        onView(withId(R.id.iv_avengers_badge)).check(matches(not(isDisplayed())));
+    }
+
+    private void givenASuperHero(boolean isAvenger) {
+        List<SuperHero> superHeroList = new ArrayList<>();
+        SuperHero superHero = new SuperHero(EXPECTED_NAME, EXPECTED_PHOTO, isAvenger, EXPECTED_DESCRIPTION);
+        superHeroList.add(superHero);
+        when(repository.getAll()).thenReturn(superHeroList);
+    }
+
+    @Test public void showsBadgeForAvengerSuperHero() {
+        givenASuperHero(Boolean.TRUE);
+
+        startActivity();
+
+        onView(withText(EXPECTED_NAME)).check(matches(isDisplayed()));
+        onView(withId(R.id.iv_avengers_badge)).check(matches(isDisplayed()));
+    }
+
+    @Test public void showsSingleSuperHero() {
+        givenASuperHero(Boolean.TRUE);
+
+        startActivity();
+
+        //TODO Ensures the list is visible?
+        onView(withId(R.id.recycler_view)).check(matches(RecyclerViewItemsCountMatcher.recyclerViewHasItemCount(1)));
+    }
+
+    @Test public void showsMultipleSuperHeroes() {
+        List<SuperHero> heroList = givenSomeSuperHeroes(RANDOM_NUMBER_OF_SUPER_HEROES);
+
+        startActivity();
+
+        onView(withId(R.id.recycler_view)).check(matches(RecyclerViewItemsCountMatcher.recyclerViewHasItemCount(RANDOM_NUMBER_OF_SUPER_HEROES)));
+
+            RecyclerViewInteraction.<SuperHero>onRecyclerView(withId(R.id.recycler_view))
+                    .withItems(heroList)
+                    .check(new RecyclerViewInteraction.ItemViewAssertion<SuperHero>() {
+                        @Override
+                        public void check(SuperHero item, View view, NoMatchingViewException e) {
+                            matches(hasDescendant(withText(item.getName()))).check(view, e);
+                        }
+                    });
+    }
+
+    @Test public void opensSuperHeroDetailOnRecyclerItemCLick() {
+        final List<SuperHero> superHeroList = givenSomeSuperHeroes();
+        final int index = 0;
+
+        startActivity();
+
+        onView(withId(R.id.recycler_view))
+                .perform(RecyclerViewActions.actionOnItemAtPosition(index, click()));
+
+        final SuperHero superHero = superHeroList.get(index);
+        intended(hasComponent(SuperHeroDetailActivity.class.getCanonicalName()));
+        onToolbarWithTitle(superHero.getName());
+    }
+
 }
